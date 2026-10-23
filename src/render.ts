@@ -4,11 +4,35 @@ import greenUrl from './assets/car_green.png';
 import redUrl from './assets/car_red.png';
 import railUrl from './assets/rail_short.png';
 import curveUrl from './assets/rail_curve.png';
-import { ARC_R, ARC_SWEEP, LINE_LEN, RAIL_W, SCALE, Seg, poseAt } from './geometry';
+import {
+  ARC_R,
+  ARC_SWEEP,
+  LINE_LEN,
+  R90,
+  RAIL_W,
+  SCALE,
+  SCALE90,
+  SWEEP90,
+  Seg,
+  poseAt,
+} from './geometry';
+import { Deco, Piece } from './track';
+import { HOUSE_COUNT, TREE_COUNT } from './scenery';
+
+const treeUrls = Object.values(
+  import.meta.glob('./assets/tree*.png', { eager: true, query: '?url', import: 'default' }),
+) as string[];
+const houseUrls = Object.values(
+  import.meta.glob('./assets/house*.png', { eager: true, query: '?url', import: 'default' }),
+) as string[];
+import curve90Url from './assets/rail_curve90.png';
 
 export interface Assets {
   rail: HTMLImageElement;
   curve: HTMLImageElement;
+  curve90: HTMLImageElement;
+  trees: HTMLImageElement[];
+  houses: HTMLImageElement[];
   cars: HTMLImageElement[]; // 先頭から 機関車/青/貨車/赤
 }
 
@@ -21,10 +45,14 @@ const load = (src: string) =>
   });
 
 export async function loadAssets(): Promise<Assets> {
-  const [rail, curve, ...cars] = await Promise.all(
-    [railUrl, curveUrl, locoUrl, blueUrl, greenUrl, redUrl].map(load),
-  );
-  return { rail, curve, cars };
+  const all = (urls: string[]) => Promise.all(urls.map(load));
+  const [[rail, curve, curve90], cars, trees, houses] = await Promise.all([
+    all([railUrl, curveUrl, curve90Url]),
+    all([locoUrl, blueUrl, greenUrl, redUrl]),
+    all(treeUrls.slice(0, TREE_COUNT)),
+    all(houseUrls.slice(0, HOUSE_COUNT)),
+  ]);
+  return { rail, curve, curve90, trees, houses, cars };
 }
 
 // 直線スプライト(75x209)の構造: 上のツメ 0-30 / 本体 30-209(うち下39がくぼみ)
@@ -105,14 +133,81 @@ function drawBentArc(ctx: CanvasRenderingContext2D, a: Assets, seg: Seg) {
   drawTab(ctx, a, seg);
 }
 
-export function drawPiece(ctx: CanvasRenderingContext2D, a: Assets, seg: Seg) {
+// 90度カーブスプライトの中心線は中心(274,276)・半径224の円弧で、始点は左端
+const C90 = { x: 274, y: 276, r: 224 };
+
+function drawArc90(ctx: CanvasRenderingContext2D, a: Assets, seg: Seg) {
+  ctx.save();
+  ctx.translate(seg.x, seg.y);
+  ctx.rotate(seg.h + Math.PI / 2);
+  ctx.scale(seg.s === 1 ? SCALE90 : -SCALE90, SCALE90);
+  ctx.drawImage(a.curve90, -(C90.x - C90.r), -C90.y);
+  ctx.restore();
+}
+
+const near = (a: number, b: number) => Math.abs(a - b) < 0.5;
+
+function drawSeg(ctx: CanvasRenderingContext2D, a: Assets, seg: Seg) {
   if (seg.s === 0) {
     drawLine(ctx, a, seg);
     drawTab(ctx, a, seg);
-    return;
-  }
-  if (Math.abs(seg.len - ARC_R * ARC_SWEEP) < 0.5) drawStandardArc(ctx, a, seg);
+  } else if (near(seg.r, R90) && near(seg.len, R90 * SWEEP90)) drawArc90(ctx, a, seg);
+  else if (near(seg.r, ARC_R) && near(seg.len, ARC_R * ARC_SWEEP)) drawStandardArc(ctx, a, seg);
   else drawBentArc(ctx, a, seg);
+}
+
+const CACHE_K = 2;
+
+/** 木目を曲げて描く任意角度のカーブは重いので、一度だけ画像にしておく */
+export function drawPiece(ctx: CanvasRenderingContext2D, a: Assets, piece: Piece) {
+  const seg = piece.seg;
+  const standard =
+    seg.s === 0 ||
+    (near(seg.r, R90) && near(seg.len, R90 * SWEEP90)) ||
+    (near(seg.r, ARC_R) && near(seg.len, ARC_R * ARC_SWEEP));
+  if (standard) return drawSeg(ctx, a, seg);
+  if (!piece.cache) {
+    let x0 = Infinity,
+      y0 = Infinity,
+      x1 = -Infinity,
+      y1 = -Infinity;
+    for (let u = 0; u <= seg.len + 4; u += 6) {
+      const p = poseAt(seg, Math.min(u, seg.len));
+      x0 = Math.min(x0, p.x);
+      y0 = Math.min(y0, p.y);
+      x1 = Math.max(x1, p.x);
+      y1 = Math.max(y1, p.y);
+    }
+    const m = RAIL_W / 2 + 24;
+    x0 -= m;
+    y0 -= m;
+    const w = x1 + m - x0;
+    const h = y1 + m - y0;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.ceil(w * CACHE_K);
+    canvas.height = Math.ceil(h * CACHE_K);
+    const c = canvas.getContext('2d')!;
+    c.scale(CACHE_K, CACHE_K);
+    c.translate(-x0, -y0);
+    drawSeg(c, a, seg);
+    piece.cache = { canvas, x: x0, y: y0, w, h };
+  }
+  const k = piece.cache;
+  ctx.drawImage(k.canvas, k.x, k.y, k.w, k.h);
+}
+
+export function drawDeco(ctx: CanvasRenderingContext2D, a: Assets, d: Deco) {
+  const img = (d.kind === 'tree' ? a.trees : a.houses)[d.idx];
+  const w = d.size;
+  const h = (d.size * img.height) / img.width;
+  ctx.save();
+  ctx.translate(d.x, d.y);
+  ctx.rotate(d.rot);
+  ctx.shadowColor = 'rgba(0,0,0,0.25)';
+  ctx.shadowBlur = 5;
+  ctx.shadowOffsetY = 2;
+  ctx.drawImage(img, -w / 2, -h / 2, w, h);
+  ctx.restore();
 }
 
 const CAR_SCALE = SCALE * 0.733;

@@ -1,5 +1,7 @@
 import {
   LINE_LEN,
+  R90,
+  SWEEP90,
   Dubins,
   Pose,
   Seg,
@@ -28,8 +30,9 @@ export class RailDrawer {
 
   constructor(
     private track: Track,
-    private onAdd: (seg: Seg) => void,
+    private onAdd: (piece: Piece) => void,
     private onRemove: () => void,
+    private zoom: () => number, // 画面の拡大率(縮小中は掴みやすさのため判定を広げる)
   ) {}
 
   down(x: number, y: number) {
@@ -38,7 +41,7 @@ export class RailDrawer {
     this.cursor = null;
     this.from = null;
     this.origin = null;
-    const e = this.track.nearestOpenEnd({ x, y }, SNAP_START);
+    const e = this.track.nearestOpenEnd({ x, y }, SNAP_START / this.zoom());
     if (e) {
       this.cursor = e.pose;
       this.from = { piece: e.piece, end: e.end };
@@ -70,7 +73,7 @@ export class RailDrawer {
 
   private place(seg: Seg): Piece {
     const piece = this.track.add(seg);
-    this.onAdd(seg);
+    this.onAdd(piece);
     this.stroke.push({ piece, from: this.from, cursor: this.cursor! });
     if (this.from) this.track.connect(this.from.piece, this.from.end, piece, 'A');
     this.from = { piece, end: 'B' };
@@ -82,15 +85,23 @@ export class RailDrawer {
     const c = this.cursor!;
     const d0 = dist(c, p);
     if (d0 < LINE_LEN * 0.7) return false;
-    const cands: { seg: Seg; cost: number }[] = [
-      { seg: lineSeg(c), cost: 0 },
-      { seg: arcSeg(c, 1), cost: 5 },
-      { seg: arcSeg(c, -1), cost: 5 },
-    ].map((k) => ({ seg: k.seg, cost: dist(endPose(k.seg), p) + k.cost }));
+    // 直線・30度カーブ・90度カーブのうち、指先に最も近づくものを置く
+    const chord90 = R90 * Math.SQRT2;
+    const cands = [
+      { seg: lineSeg(c), pen: 0, gate: LINE_LEN * 0.4 },
+      { seg: arcSeg(c, 1), pen: 5, gate: LINE_LEN * 0.4 },
+      { seg: arcSeg(c, -1), pen: 5, gate: LINE_LEN * 0.4 },
+      { seg: arcSeg(c, 1, SWEEP90, R90), pen: 8, gate: chord90 * 0.2 },
+      { seg: arcSeg(c, -1, SWEEP90, R90), pen: 8, gate: chord90 * 0.2 },
+    ]
+      .map((k) => {
+        const d = dist(endPose(k.seg), p);
+        return { seg: k.seg, cost: d + k.pen, ok: d0 - d >= k.gate };
+      })
+      .filter((k) => k.ok);
+    if (!cands.length) return false;
     cands.sort((a, b) => a.cost - b.cost);
     const best = cands[0];
-    // 背後へ引いたときや、ほとんど近づかないときは置かない
-    if (d0 - dist(endPose(best.seg), p) < LINE_LEN * 0.4) return false;
     this.place(best.seg);
     return true;
   }
@@ -120,7 +131,7 @@ export class RailDrawer {
       (this.from !== null && e.piece === this.from.piece) ||
       (first !== null && e.piece === first) ||
       recent.includes(e.piece);
-    const e = this.track.nearestOpenEnd(p, SNAP_JOIN, skip);
+    const e = this.track.nearestOpenEnd(p, SNAP_JOIN / this.zoom(), skip);
     if (!e) return false;
     const target: Pose = { x: e.pose.x, y: e.pose.y, h: e.pose.h + Math.PI };
 

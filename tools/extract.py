@@ -5,6 +5,7 @@ from PIL import Image
 from scipy import ndimage as ndi
 
 src, out = sys.argv[1], sys.argv[2]
+which = sys.argv[3] if len(sys.argv) > 3 else "train"
 im = Image.open(src).convert("RGB")
 a = np.asarray(im).astype(float)
 mx, mn = a.max(2), a.min(2)
@@ -32,10 +33,24 @@ def crop(name, box, keep=1):
     Image.fromarray(rgba[by0:by1, bx0:bx1], "RGBA").save(f"{out}/{name}.png")
     print(name, bx1 - bx0, by1 - by0)
 
-crop("loco", (60, 370, 175, 630))
-crop("car_blue", (225, 370, 335, 630))
-crop("car_green", (395, 370, 500, 630))
-crop("car_red", (560, 370, 700, 630))
-crop("rail_long", (55, 730, 160, 1290))
-crop("rail_short", (210, 730, 310, 960))
-crop("rail_curve", (365, 730, 485, 1000))
+if which == "train":
+    crop("loco", (60, 370, 175, 630))
+    crop("car_blue", (225, 370, 335, 630))
+    crop("car_green", (395, 370, 500, 630))
+    crop("car_red", (560, 370, 700, 630))
+    crop("rail_long", (55, 730, 160, 1290))
+    crop("rail_short", (210, 730, 310, 960))
+    crop("rail_curve", (365, 730, 485, 1000))
+else:  # 90度カーブ・木・家の写真
+    crop("rail_curve90", (65, 120, 385, 400))
+    crop("tree1", (70, 500, 300, 730))
+    crop("tree2", (360, 500, 530, 685))
+    crop("tree3", (580, 535, 700, 655))
+    crop("tree4", (130, 755, 245, 870))
+    crop("tree5", (365, 710, 525, 870))
+    crop("tree6", (590, 740, 695, 845))
+    crop("house1", (70, 960, 260, 1145))
+    crop("house2", (315, 980, 485, 1150))
+    crop("house3", (545, 975, 705, 1145))
+    crop("house4", (65, 1175, 255, 1300))
+    crop("house5", (370, 1220, 430, 1290))

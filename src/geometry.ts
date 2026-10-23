@@ -10,11 +10,16 @@ export const RAIL_W = 75 * SCALE;
 export const LINE_LEN = 179 * SCALE; // 直線パーツ本体の長さ(ツメを除く)
 export const ARC_R = 379 * SCALE; // カーブパーツの中心線の半径
 export const ARC_SWEEP = (30 * Math.PI) / 180;
+// 90度カーブは幅97pxの写真から切り出したもの。中心線の半径は224px
+export const SCALE90 = RAIL_W / 97;
+export const R90 = 224 * SCALE90;
+export const SWEEP90 = Math.PI / 2;
 
 /** レール1本分の形状。s=0 は直線、s=±1 は円弧(+1 が右カーブ)。 */
 export interface Seg extends Pose {
   s: -1 | 0 | 1;
   len: number; // 弧長
+  r: number; // 円弧の半径(直線では 0)
 }
 
 const TWO_PI = Math.PI * 2;
@@ -24,8 +29,8 @@ export function poseAt(seg: Seg, u: number): Pose {
   if (seg.s === 0) {
     return { x: seg.x + Math.cos(seg.h) * u, y: seg.y + Math.sin(seg.h) * u, h: seg.h };
   }
-  const h2 = seg.h + (seg.s * u) / ARC_R;
-  const k = ARC_R * seg.s;
+  const h2 = seg.h + (seg.s * u) / seg.r;
+  const k = seg.r * seg.s;
   return {
     x: seg.x + k * (Math.sin(h2) - Math.sin(seg.h)),
     y: seg.y + k * (Math.cos(seg.h) - Math.cos(h2)),
@@ -35,13 +40,14 @@ export function poseAt(seg: Seg, u: number): Pose {
 
 export const endPose = (seg: Seg): Pose => poseAt(seg, seg.len);
 
-export const lineSeg = (p: Pose, len = LINE_LEN): Seg => ({ x: p.x, y: p.y, h: p.h, s: 0, len });
-export const arcSeg = (p: Pose, s: 1 | -1, sweep = ARC_SWEEP): Seg => ({
+export const lineSeg = (p: Pose, len = LINE_LEN): Seg => ({ x: p.x, y: p.y, h: p.h, s: 0, len, r: 0 });
+export const arcSeg = (p: Pose, s: 1 | -1, sweep = ARC_SWEEP, r = ARC_R): Seg => ({
   x: p.x,
   y: p.y,
   h: p.h,
   s,
-  len: ARC_R * sweep,
+  len: r * sweep,
+  r,
 });
 
 const normal = (h: number): [number, number] => [-Math.sin(h), Math.cos(h)];

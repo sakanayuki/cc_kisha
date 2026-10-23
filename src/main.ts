@@ -1,7 +1,9 @@
 import './style.css';
 import { RailDrawer } from './drawer';
-import { drawCar, drawPiece, loadAssets, Assets } from './render';
-import { Track } from './track';
+import { drawCar, drawDeco, drawPiece, loadAssets, Assets } from './render';
+import { poseAt } from './geometry';
+import { spawnDeco } from './scenery';
+import { Piece, Track } from './track';
 import { Train } from './train';
 
 const HOLD_MS = 900;
@@ -16,12 +18,38 @@ const btnTrash = document.getElementById('btn-trash')!;
 const ring = btnTrash.querySelector('.ring') as SVGElement;
 
 const track = new Track();
-const layer = document.createElement('canvas'); // 置いたレールを描きためておく
-const lctx = layer.getContext('2d')!;
 let assets: Assets;
 let mode: Mode = 'rail';
 let train: Train | null = null;
 let dpr = 1;
+let vw = 0;
+let vh = 0;
+
+// 画面の拡大率。レールが画面端(10%)に迫ると、画面中心を軸にゆっくり縮小する
+const EDGE = 0.1;
+const MIN_ZOOM = 0.2;
+let zoom = 1;
+let targetZoom = 1;
+let reach = { x: 0, y: 0 }; // 画面中心から最も遠いレールまでの距離(縦横別)
+const toWorld = (sx: number, sy: number) => ({
+  x: (sx - (vw / 2) * (1 - zoom)) / zoom,
+  y: (sy - (vh / 2) * (1 - zoom)) / zoom,
+});
+
+function growView(piece: Piece) {
+  const seg = piece.seg;
+  for (let k = 0; k <= 4; k++) {
+    const p = poseAt(seg, (seg.len * k) / 4);
+    reach.x = Math.max(reach.x, Math.abs(p.x - vw / 2));
+    reach.y = Math.max(reach.y, Math.abs(p.y - vh / 2));
+  }
+  const need = Math.min(
+    reach.x > 0 ? ((0.5 - EDGE) * vw) / reach.x : Infinity,
+    reach.y > 0 ? ((0.5 - EDGE) * vh) / reach.y : Infinity,
+  );
+  // 端に届いたら、少し余裕を持たせて一気に広げる(何度も細かく縮まないように)
+  if (need < targetZoom) targetZoom = Math.max(MIN_ZOOM, need * 0.8);
+}
 
 const HINTS: Record<Mode, string> = {
   rail: '画面をなぞってレールを敷こう',
@@ -42,20 +70,10 @@ function setMode(m: Mode) {
 
 function resize() {
   dpr = window.devicePixelRatio || 1;
-  const w = window.innerWidth;
-  const h = window.innerHeight;
-  for (const c of [canvas, layer]) {
-    c.width = Math.round(w * dpr);
-    c.height = Math.round(h * dpr);
-  }
-  redrawLayer();
-}
-
-function redrawLayer() {
-  lctx.setTransform(1, 0, 0, 1, 0, 0);
-  lctx.clearRect(0, 0, layer.width, layer.height);
-  lctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  for (const p of track.pieces) drawPiece(lctx, assets, p.seg);
+  vw = window.innerWidth;
+  vh = window.innerHeight;
+  canvas.width = Math.round(vw * dpr);
+  canvas.height = Math.round(vh * dpr);
 }
 
 let rail: RailDrawer;
@@ -63,9 +81,10 @@ let rail: RailDrawer;
 canvas.addEventListener('pointerdown', (e) => {
   canvas.setPointerCapture(e.pointerId);
   if (mode === 'rail') {
-    rail.down(e.clientX, e.clientY);
+    const w = toWorld(e.clientX, e.clientY);
+    rail.down(w.x, w.y);
   } else {
-    const hit = track.nearestOnTrack({ x: e.clientX, y: e.clientY }, 40);
+    const hit = track.nearestOnTrack(toWorld(e.clientX, e.clientY), 40 / zoom);
     if (hit) train = new Train(track, hit.piece, hit.u, assets.cars.length);
   }
 });
@@ -73,8 +92,10 @@ canvas.addEventListener('pointermove', (e) => {
   if (mode !== 'rail' || !canvas.hasPointerCapture(e.pointerId)) return;
   // 速く動かしたときに点が飛ばないよう、取りこぼした分も順に処理する
   const events = e.getCoalescedEvents?.() ?? [];
-  if (events.length) for (const ev of events) rail.move(ev.clientX, ev.clientY);
-  else rail.move(e.clientX, e.clientY);
+  for (const ev of events.length ? events : [e]) {
+    const w = toWorld(ev.clientX, ev.clientY);
+    rail.move(w.x, w.y);
+  }
 });
 const end = () => rail.up();
 canvas.addEventListener('pointerup', end);
@@ -107,7 +128,8 @@ function cancelHold() {
 function clearAll() {
   track.clear();
   train = null;
-  lctx.clearRect(0, 0, layer.width, layer.height);
+  reach = { x: 0, y: 0 };
+  targetZoom = 1; // 拡大率も最初に戻す
   hint.textContent = 'レールを全部消したよ';
   hint.style.opacity = '1';
   window.setTimeout(() => (hint.style.opacity = '0'), 1800);
@@ -126,12 +148,17 @@ let last = performance.now();
 function frame(now: number) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
+  zoom += (targetZoom - zoom) * (1 - Math.exp(-dt * 4));
+  if (Math.abs(targetZoom - zoom) < 0.0005) zoom = targetZoom;
+
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(layer, 0, 0);
+  const k = dpr * zoom;
+  ctx.setTransform(k, 0, 0, k, (dpr * vw * (1 - zoom)) / 2, (dpr * vh * (1 - zoom)) / 2);
+  for (const p of track.pieces) for (const d of p.deco) drawDeco(ctx, assets, d);
+  for (const p of track.pieces) drawPiece(ctx, assets, p);
   if (train) {
     train.update(dt);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     for (const c of train.carsToDraw()) drawCar(ctx, assets.cars[c.idx], c.x, c.y, c.h, c.alpha);
     if (train.finished) train = null;
   }
@@ -140,7 +167,15 @@ function frame(now: number) {
 
 loadAssets().then((a) => {
   assets = a;
-  rail = new RailDrawer(track, (seg) => drawPiece(lctx, assets, seg), redrawLayer);
+  rail = new RailDrawer(
+    track,
+    (piece) => {
+      spawnDeco(track, piece);
+      growView(piece);
+    },
+    () => {},
+    () => zoom,
+  );
   resize();
   window.addEventListener('resize', resize);
   setMode('rail');

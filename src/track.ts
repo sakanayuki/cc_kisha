@@ -7,8 +7,19 @@ export interface Link {
   end: End;
 }
 
+export interface Deco {
+  kind: 'tree' | 'house';
+  idx: number;
+  x: number;
+  y: number;
+  rot: number;
+  size: number;
+}
+
 export interface Piece {
   seg: Seg;
+  deco: Deco[]; // このレールを敷いたときに周りへ建った木や家
+  cache?: { canvas: HTMLCanvasElement; x: number; y: number; w: number; h: number };
   linkA: Link | null; // 始点側の接続先
   linkB: Link | null; // 終点側の接続先
 }
@@ -23,7 +34,7 @@ export class Track {
   pieces: Piece[] = [];
 
   add(seg: Seg): Piece {
-    const piece: Piece = { seg, linkA: null, linkB: null };
+    const piece: Piece = { seg, deco: [], linkA: null, linkB: null };
     this.pieces.push(piece);
     return piece;
   }
