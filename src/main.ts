@@ -39,11 +39,15 @@ let vh = 0;
 const EDGE = 0.1;
 const MIN_ZOOM = 0.2;
 let zoom = 1;
-let targetZoom = 1;
+let overviewZoom = 1; // レールが増えるにつれて縮小していった、全体を見渡す倍率
 let reach = { x: 0, y: 0 }; // 画面中心から最も遠いレールまでの距離(縦横別)
+// 列車が走っている間は、初期の倍率(1)に戻して列車を画面中央で追いかける。
+// off は「画面中心がいま見ている位置」の、画面中心からのずれ(ワールド座標)
+let off = { x: 0, y: 0 };
+const wantZoom = () => (train ? 1 : overviewZoom);
 const toWorld = (sx: number, sy: number) => ({
-  x: (sx - (vw / 2) * (1 - zoom)) / zoom,
-  y: (sy - (vh / 2) * (1 - zoom)) / zoom,
+  x: (sx - vw / 2) / zoom + vw / 2 + off.x,
+  y: (sy - vh / 2) / zoom + vh / 2 + off.y,
 });
 
 function growView(piece: Piece) {
@@ -58,7 +62,7 @@ function growView(piece: Piece) {
     reach.y > 0 ? ((0.5 - EDGE) * vh) / reach.y : Infinity,
   );
   // 端に届いたら、少し余裕を持たせて一気に広げる(何度も細かく縮まないように)
-  if (need < targetZoom) targetZoom = Math.max(MIN_ZOOM, need * 0.8);
+  if (need < overviewZoom) overviewZoom = Math.max(MIN_ZOOM, need * 0.8);
 }
 
 const HINTS: Record<Mode, string> = {
@@ -102,16 +106,16 @@ function renderLayer() {
   dirty = true;
 }
 
-function applyView(c: CanvasRenderingContext2D, z: number) {
+function applyView(c: CanvasRenderingContext2D, z: number, ox = 0, oy = 0) {
   const k = dpr * z;
-  c.setTransform(k, 0, 0, k, (dpr * vw * (1 - z)) / 2, (dpr * vh * (1 - z)) / 2);
+  c.setTransform(k, 0, 0, k, dpr * (vw / 2 - z * (vw / 2 + ox)), dpr * (vh / 2 - z * (vh / 2 + oy)));
 }
 
 function addToLayer(piece: Piece) {
   applyView(lctx, layerZoom);
   for (const d of piece.deco) drawDeco(lctx, assets, d);
   drawPiece(lctx, assets, piece);
-  if (zoom !== targetZoom || layerZoom !== zoom) pending.push(piece);
+  if (zoom !== wantZoom() || layerZoom !== zoom) pending.push(piece);
   dirty = true;
 }
 
@@ -168,7 +172,7 @@ function clearAll() {
   track.clear();
   train = null;
   reach = { x: 0, y: 0 };
-  targetZoom = 1; // 拡大率も最初に戻す
+  overviewZoom = 1; // 拡大率も最初に戻す
   renderLayer();
   hint.textContent = 'レールを全部消したよ';
   hint.style.opacity = '1';
@@ -184,36 +188,87 @@ for (const ev of ['pointerup', 'pointercancel', 'pointerleave'] as const) {
 }
 btnTrash.addEventListener('contextmenu', (e) => e.preventDefault());
 
+/** 画面に入るレールと飾りだけを直接描く(列車を追うカメラ用。マップが広くても描画量は画面ぶんで済む) */
+function drawVisible(c: CanvasRenderingContext2D) {
+  const hw = vw / (2 * zoom) + 40;
+  const hh = vh / (2 * zoom) + 40;
+  const cx = vw / 2 + off.x;
+  const cy = vh / 2 + off.y;
+  const x0 = cx - hw;
+  const x1 = cx + hw;
+  const y0 = cy - hh;
+  const y1 = cy + hh;
+  const seen = track.pieces.filter(
+    (p) => p.bb.x1 > x0 && p.bb.x0 < x1 && p.bb.y1 > y0 && p.bb.y0 < y1,
+  );
+  for (const p of seen) {
+    for (const d of p.deco) {
+      if (d.x > x0 && d.x < x1 && d.y > y0 && d.y < y1) drawDeco(c, assets, d);
+    }
+  }
+  for (const p of seen) drawPiece(c, assets, p);
+}
+
 let last = performance.now();
 function frame(now: number) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   requestAnimationFrame(frame);
 
-  const zooming = zoom !== targetZoom;
+  if (train) train.update(dt);
+  const cars = train ? train.carsToDraw() : [];
+  const follow = train !== null;
+
+  const want = wantZoom();
+  const zooming = zoom !== want;
   if (zooming) {
-    zoom += (targetZoom - zoom) * (1 - Math.exp(-dt * 4));
-    if (Math.abs(targetZoom - zoom) < 0.002 * targetZoom) zoom = targetZoom;
+    zoom += (want - zoom) * (1 - Math.exp(-dt * 4));
+    if (Math.abs(want - zoom) < 0.002 * want) zoom = want;
     dirty = true;
-  } else if (layerZoom !== zoom) {
+  }
+
+  // カメラ: 走行中は先頭の車両を画面中央に、そうでなければ中心に戻す
+  let tx = 0;
+  let ty = 0;
+  const lead = cars.find((c) => c.piece) ?? cars[0];
+  if (follow && lead) {
+    tx = lead.x - vw / 2;
+    ty = lead.y - vh / 2;
+  } else if (follow) {
+    tx = off.x;
+    ty = off.y;
+  }
+  if (off.x !== tx || off.y !== ty) {
+    const k = 1 - Math.exp(-dt * 5);
+    off.x += (tx - off.x) * k;
+    off.y += (ty - off.y) * k;
+    if (!follow && Math.abs(off.x) < 0.5 && Math.abs(off.y) < 0.5) off = { x: 0, y: 0 };
+    dirty = true;
+  }
+  const centered = off.x === 0 && off.y === 0;
+
+  if (centered && !zooming && layerZoom !== zoom) {
     renderLayer(); // 拡大率が落ち着いたら、その倍率で描き直して画質を戻す
   }
-  if (train) train.update(dt);
   if (!dirty && !train) return;
   dirty = false;
 
-  // 縮小の途中は、描きためた画像を拡大縮小して使う
-  const r = zoom / layerZoom;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.setTransform(r, 0, 0, r, (canvas.width / 2) * (1 - r), (canvas.height / 2) * (1 - r));
-  ctx.drawImage(layer, 0, 0);
-  if (pending.length || train) applyView(ctx, zoom);
-  for (const p of pending) for (const d of p.deco) drawDeco(ctx, assets, d);
-  for (const p of pending) drawPiece(ctx, assets, p);
+  if (centered) {
+    // 縮小の途中は、描きためた画像を拡大縮小して使う
+    const r = zoom / layerZoom;
+    ctx.setTransform(r, 0, 0, r, (canvas.width / 2) * (1 - r), (canvas.height / 2) * (1 - r));
+    ctx.drawImage(layer, 0, 0);
+    applyView(ctx, zoom);
+    for (const p of pending) for (const d of p.deco) drawDeco(ctx, assets, d);
+    for (const p of pending) drawPiece(ctx, assets, p);
+  } else {
+    applyView(ctx, zoom, off.x, off.y);
+    drawVisible(ctx);
+  }
   if (train) {
-    const cars = train.carsToDraw();
     for (const c of cars) drawCar(ctx, assets.cars[c.idx], c.x, c.y, c.h, c.alpha);
     // 交差で下のレールを走る車両は、上に敷かれたレールの下に隠れるようにする
     const over = new Set<Piece>();

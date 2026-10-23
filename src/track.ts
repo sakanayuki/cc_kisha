@@ -19,6 +19,7 @@ export interface Deco {
 export interface Piece {
   seg: Seg;
   order: number; // 敷いた順。大きいほど上に重なる
+  bb: { x0: number; y0: number; x1: number; y1: number }; // 画面外の描画を省くための外接矩形
   deco: Deco[]; // このレールを敷いたときに周りへ建った木や家
   linkA: Link | null; // 始点側の接続先
   linkB: Link | null; // 終点側の接続先
@@ -36,6 +37,23 @@ interface Circle {
   r: number;
 }
 
+function boundsOf(seg: Seg) {
+  const m = RAIL_W / 2 + 16; // 幅とツメのぶん
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  const n = Math.max(2, Math.ceil(seg.len / 12));
+  for (let k = 0; k <= n; k++) {
+    const p = poseAt(seg, (seg.len * k) / n);
+    x0 = Math.min(x0, p.x);
+    y0 = Math.min(y0, p.y);
+    x1 = Math.max(x1, p.x);
+    y1 = Math.max(y1, p.y);
+  }
+  return { x0: x0 - m, y0: y0 - m, x1: x1 + m, y1: y1 + m };
+}
+
 const CELL = 64; // 空間グリッドのマス。飾り・レールの円は半径30以下なので隣接マスだけ見ればよい
 
 export class Track {
@@ -44,7 +62,14 @@ export class Track {
   private grid = new Map<number, Circle[]>(); // 飾りを置く空きの判定を速くするための索引
 
   add(seg: Seg): Piece {
-    const piece: Piece = { seg, order: this.nextOrder++, deco: [], linkA: null, linkB: null };
+    const piece: Piece = {
+      seg,
+      order: this.nextOrder++,
+      bb: boundsOf(seg),
+      deco: [],
+      linkA: null,
+      linkB: null,
+    };
     this.pieces.push(piece);
     this.indexRail(piece);
     return piece;
