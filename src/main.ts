@@ -1,6 +1,6 @@
 import './style.css';
 import { RailDrawer } from './drawer';
-import { drawCar, drawDeco, drawPiece, loadAssets, Assets } from './render';
+import { CAR_BODY_LEN, CAR_BODY_W, drawCar, drawDeco, drawPiece, loadAssets, Assets } from './render';
 import { poseAt } from './geometry';
 import { spawnDeco } from './scenery';
 import { Piece, Track } from './track';
@@ -18,6 +18,9 @@ const layer = document.createElement('canvas');
 const lctx = layer.getContext('2d')!;
 let layerZoom = 1; // layer を描いたときの拡大率
 let dirty = true; // 画面を描き直す必要があるか
+// 拡大率が変わっている最中に敷いたレール。layer は古い画面範囲の大きさしかなく、
+// 範囲の外に敷いた分が欠けるので、倍率が落ち着いて描き直すまでは毎フレーム直接描く
+let pending: Piece[] = [];
 const hint = document.getElementById('hint')!;
 const btnRail = document.getElementById('btn-rail')!;
 const btnGo = document.getElementById('btn-go')!;
@@ -90,6 +93,7 @@ function resize() {
 /** layerZoom の倍率で、すべてのレールと飾りを layer に描き直す */
 function renderLayer() {
   layerZoom = zoom;
+  pending = [];
   lctx.setTransform(1, 0, 0, 1, 0, 0);
   lctx.clearRect(0, 0, layer.width, layer.height);
   applyView(lctx, layerZoom);
@@ -107,6 +111,7 @@ function addToLayer(piece: Piece) {
   applyView(lctx, layerZoom);
   for (const d of piece.deco) drawDeco(lctx, assets, d);
   drawPiece(lctx, assets, piece);
+  if (zoom !== targetZoom || layerZoom !== zoom) pending.push(piece);
   dirty = true;
 }
 
@@ -204,9 +209,19 @@ function frame(now: number) {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.setTransform(r, 0, 0, r, (canvas.width / 2) * (1 - r), (canvas.height / 2) * (1 - r));
   ctx.drawImage(layer, 0, 0);
+  if (pending.length || train) applyView(ctx, zoom);
+  for (const p of pending) for (const d of p.deco) drawDeco(ctx, assets, d);
+  for (const p of pending) drawPiece(ctx, assets, p);
   if (train) {
-    applyView(ctx, zoom);
-    for (const c of train.carsToDraw()) drawCar(ctx, assets.cars[c.idx], c.x, c.y, c.h, c.alpha);
+    const cars = train.carsToDraw();
+    for (const c of cars) drawCar(ctx, assets.cars[c.idx], c.x, c.y, c.h, c.alpha);
+    // 交差で下のレールを走る車両は、上に敷かれたレールの下に隠れるようにする
+    const over = new Set<Piece>();
+    for (const c of cars) {
+      if (!c.piece) continue;
+      for (const q of track.coveringPieces(c, c.piece, CAR_BODY_LEN, CAR_BODY_W)) over.add(q);
+    }
+    [...over].sort((a, b) => a.order - b.order).forEach((q) => drawPiece(ctx, assets, q));
     if (train.finished) {
       train = null;
       dirty = true;

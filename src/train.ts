@@ -15,6 +15,16 @@ class Run {
   loop = false;
   g = 0; // 列車の先頭の位置(タップ位置)
 
+  /** g の位置にあるパーツ(範囲外は端のパーツ) */
+  pieceAt(g: number): Piece {
+    if (this.loop) g = ((g % this.total) + this.total) % this.total;
+    let it = this.items[0];
+    for (const i of this.items) {
+      if (i.g0 <= g) it = i;
+    }
+    return it.piece;
+  }
+
   poseAt(g: number): Pose & { off: boolean } {
     if (this.loop) g = ((g % this.total) + this.total) % this.total;
     if (g < 0) {
@@ -126,6 +136,7 @@ export interface DrawableCar {
   y: number;
   h: number;
   alpha: number;
+  piece: Piece | null; // 乗っているレール(転倒中は null)
 }
 
 export class Train {
@@ -179,6 +190,7 @@ export class Train {
           y: y + Math.sin(h) * d + Math.cos(h) * c.side * k,
           h: h + c.spin * t,
           alpha: 1 - k * k,
+          piece: null,
         });
         return;
       }
@@ -191,6 +203,7 @@ export class Train {
         y: (a.y + b.y) / 2,
         h: Math.atan2(a.y - b.y, a.x - b.x),
         alpha: 1,
+        piece: this.run.pieceAt(g),
       });
     });
     return out;

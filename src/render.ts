@@ -210,6 +210,9 @@ const CAR_PAD = 8; // 影のぶんの余白
 const CAR_Q = 2; // 影つきの画像を作るときの解像度
 
 /** 車両は毎フレーム回転して描くので、影まで含めた画像を先に作っておく */
+export const CAR_BODY_W = 24; // 当たり判定用の車体の幅
+export const CAR_BODY_LEN = CAR_SPACING - 4;
+
 export interface Car {
   canvas: HTMLCanvasElement;
   w: number; // 論理サイズ(余白込み)
