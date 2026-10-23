@@ -1,0 +1,108 @@
+:root {
+  --wood: #e3c28e;
+  --wood-dark: #a9763a;
+  --wood-light: #f3dfb8;
+}
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #fff;
+  overscroll-behavior: none;
+  font-family: system-ui, -apple-system, 'Hiragino Sans', 'Noto Sans JP', sans-serif;
+  user-select: none;
+  -webkit-user-select: none;
+}
+#stage {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  display: block;
+}
+#hint {
+  position: fixed;
+  top: calc(env(safe-area-inset-top) + 14px);
+  left: 0;
+  right: 0;
+  text-align: center;
+  color: #9a7a4a;
+  font-size: 15px;
+  pointer-events: none;
+  transition: opacity 0.6s;
+}
+#toolbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(env(safe-area-inset-bottom) + 14px);
+  display: flex;
+  justify-content: center;
+  gap: 18px;
+  pointer-events: none;
+}
+.tool {
+  pointer-events: auto;
+  position: relative;
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  border: 3px solid var(--wood-dark);
+  background: radial-gradient(circle at 35% 30%, var(--wood-light), var(--wood));
+  box-shadow: 0 4px 8px rgba(80, 50, 10, 0.3);
+  color: #5a3b14;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  touch-action: none;
+  transition: transform 0.12s, box-shadow 0.12s;
+}
+.tool svg:not(.ring) {
+  width: 40px;
+  height: 40px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.tool svg .wheel {
+  fill: #5a3b14;
+}
+.tool svg .tie,
+.tool svg .plain {
+  stroke-width: 2.5;
+}
+.tool span {
+  font-size: 10px;
+  font-weight: 700;
+  margin-top: -2px;
+}
+.tool.active {
+  transform: translateY(-6px);
+  background: radial-gradient(circle at 35% 30%, #fff1cf, #f0b95c);
+  box-shadow: 0 8px 14px rgba(80, 50, 10, 0.35);
+}
+.ring {
+  position: absolute;
+  inset: -6px;
+  width: calc(100% + 12px);
+  height: calc(100% + 12px);
+  transform: rotate(-90deg);
+  fill: none;
+  stroke: #d9534f;
+  stroke-width: 5;
+  stroke-linecap: round;
+  stroke-dasharray: 182;
+  stroke-dashoffset: 182;
+  pointer-events: none;
+}
