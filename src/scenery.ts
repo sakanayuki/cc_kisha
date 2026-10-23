@@ -1,4 +1,4 @@
-import { RAIL_W, dist, poseAt } from './geometry';
+import { RAIL_W, poseAt } from './geometry';
 import { Deco, Piece, Track } from './track';
 
 export const TREE_COUNT = 6;
@@ -19,7 +19,7 @@ export function spawnDeco(track: Track, piece: Piece) {
     const off = RAIL_W / 2 + size / 2 + rnd(6, 40);
     const x = p.x - Math.sin(p.h) * off * side;
     const y = p.y + Math.cos(p.h) * off * side;
-    if (clear(track, x, y, size / 2)) {
+    if (track.isClear(x, y, size / 2)) {
       const d: Deco = {
         kind: isHouse ? 'house' : 'tree',
         idx: Math.floor(Math.random() * (isHouse ? HOUSE_COUNT : TREE_COUNT)),
@@ -29,19 +29,8 @@ export function spawnDeco(track: Track, piece: Piece) {
         size,
       };
       piece.deco.push(d);
+      track.addCircle(x, y, size / 2);
       return;
     }
   }
-}
-
-/** レールや他の飾りと重ならないか */
-function clear(track: Track, x: number, y: number, r: number) {
-  for (const q of track.pieces) {
-    for (const d of q.deco) if (dist(d, { x, y }) < r + d.size / 2 + 2) return false;
-    const n = Math.max(2, Math.ceil(q.seg.len / 10));
-    for (let k = 0; k <= n; k++) {
-      if (dist(poseAt(q.seg, (q.seg.len * k) / n), { x, y }) < r + RAIL_W / 2 + 3) return false;
-    }
-  }
-  return true;
 }

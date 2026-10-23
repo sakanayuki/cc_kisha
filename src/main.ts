@@ -10,7 +10,14 @@ const HOLD_MS = 900;
 type Mode = 'rail' | 'go';
 
 const canvas = document.getElementById('stage') as HTMLCanvasElement;
-const ctx = canvas.getContext('2d')!;
+const ctx = canvas.getContext('2d', { alpha: false })!;
+
+// 置いたレールと飾りは動かないので、画面と同じ大きさの画像に描きためておく。
+// 毎フレームはその画像と列車だけを描く(レールが増えても重くならない)
+const layer = document.createElement('canvas');
+const lctx = layer.getContext('2d')!;
+let layerZoom = 1; // layer を描いたときの拡大率
+let dirty = true; // 画面を描き直す必要があるか
 const hint = document.getElementById('hint')!;
 const btnRail = document.getElementById('btn-rail')!;
 const btnGo = document.getElementById('btn-go')!;
@@ -61,6 +68,7 @@ function setMode(m: Mode) {
   btnRail.classList.toggle('active', m === 'rail');
   btnGo.classList.toggle('active', m === 'go');
   if (m === 'rail') train = null;
+  dirty = true;
   hint.textContent = HINTS[m];
   hint.style.opacity = '1';
   window.setTimeout(() => {
@@ -69,11 +77,37 @@ function setMode(m: Mode) {
 }
 
 function resize() {
-  dpr = window.devicePixelRatio || 1;
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
   vw = window.innerWidth;
   vh = window.innerHeight;
-  canvas.width = Math.round(vw * dpr);
-  canvas.height = Math.round(vh * dpr);
+  for (const c of [canvas, layer]) {
+    c.width = Math.round(vw * dpr);
+    c.height = Math.round(vh * dpr);
+  }
+  renderLayer();
+}
+
+/** layerZoom の倍率で、すべてのレールと飾りを layer に描き直す */
+function renderLayer() {
+  layerZoom = zoom;
+  lctx.setTransform(1, 0, 0, 1, 0, 0);
+  lctx.clearRect(0, 0, layer.width, layer.height);
+  applyView(lctx, layerZoom);
+  for (const p of track.pieces) for (const d of p.deco) drawDeco(lctx, assets, d);
+  for (const p of track.pieces) drawPiece(lctx, assets, p);
+  dirty = true;
+}
+
+function applyView(c: CanvasRenderingContext2D, z: number) {
+  const k = dpr * z;
+  c.setTransform(k, 0, 0, k, (dpr * vw * (1 - z)) / 2, (dpr * vh * (1 - z)) / 2);
+}
+
+function addToLayer(piece: Piece) {
+  applyView(lctx, layerZoom);
+  for (const d of piece.deco) drawDeco(lctx, assets, d);
+  drawPiece(lctx, assets, piece);
+  dirty = true;
 }
 
 let rail: RailDrawer;
@@ -130,6 +164,7 @@ function clearAll() {
   train = null;
   reach = { x: 0, y: 0 };
   targetZoom = 1; // 拡大率も最初に戻す
+  renderLayer();
   hint.textContent = 'レールを全部消したよ';
   hint.style.opacity = '1';
   window.setTimeout(() => (hint.style.opacity = '0'), 1800);
@@ -148,21 +183,35 @@ let last = performance.now();
 function frame(now: number) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
-  zoom += (targetZoom - zoom) * (1 - Math.exp(-dt * 4));
-  if (Math.abs(targetZoom - zoom) < 0.0005) zoom = targetZoom;
-
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  const k = dpr * zoom;
-  ctx.setTransform(k, 0, 0, k, (dpr * vw * (1 - zoom)) / 2, (dpr * vh * (1 - zoom)) / 2);
-  for (const p of track.pieces) for (const d of p.deco) drawDeco(ctx, assets, d);
-  for (const p of track.pieces) drawPiece(ctx, assets, p);
-  if (train) {
-    train.update(dt);
-    for (const c of train.carsToDraw()) drawCar(ctx, assets.cars[c.idx], c.x, c.y, c.h, c.alpha);
-    if (train.finished) train = null;
-  }
   requestAnimationFrame(frame);
+
+  const zooming = zoom !== targetZoom;
+  if (zooming) {
+    zoom += (targetZoom - zoom) * (1 - Math.exp(-dt * 4));
+    if (Math.abs(targetZoom - zoom) < 0.002 * targetZoom) zoom = targetZoom;
+    dirty = true;
+  } else if (layerZoom !== zoom) {
+    renderLayer(); // 拡大率が落ち着いたら、その倍率で描き直して画質を戻す
+  }
+  if (train) train.update(dt);
+  if (!dirty && !train) return;
+  dirty = false;
+
+  // 縮小の途中は、描きためた画像を拡大縮小して使う
+  const r = zoom / layerZoom;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.setTransform(r, 0, 0, r, (canvas.width / 2) * (1 - r), (canvas.height / 2) * (1 - r));
+  ctx.drawImage(layer, 0, 0);
+  if (train) {
+    applyView(ctx, zoom);
+    for (const c of train.carsToDraw()) drawCar(ctx, assets.cars[c.idx], c.x, c.y, c.h, c.alpha);
+    if (train.finished) {
+      train = null;
+      dirty = true;
+    }
+  }
 }
 
 loadAssets().then((a) => {
@@ -172,8 +221,12 @@ loadAssets().then((a) => {
     (piece) => {
       spawnDeco(track, piece);
       growView(piece);
+      addToLayer(piece);
     },
-    () => {},
+    () => {
+      track.reindex();
+      renderLayer();
+    },
     () => zoom,
   );
   resize();

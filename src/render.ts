@@ -31,9 +31,9 @@ export interface Assets {
   rail: HTMLImageElement;
   curve: HTMLImageElement;
   curve90: HTMLImageElement;
-  trees: HTMLImageElement[];
-  houses: HTMLImageElement[];
-  cars: HTMLImageElement[]; // 先頭から 機関車/青/貨車/赤
+  trees: Sprite[];
+  houses: Sprite[];
+  cars: Car[]; // 先頭から 機関車/青/貨車/赤
 }
 
 const load = (src: string) =>
@@ -44,6 +44,31 @@ const load = (src: string) =>
     img.src = src;
   });
 
+// 飾りは最大でも幅50px程度でしか描かないので、あらかじめ縮小しておく(毎回の縮小描画を避ける)
+const DECO_PX = 110;
+type Sprite = HTMLImageElement | HTMLCanvasElement;
+
+function shrink(img: HTMLImageElement, maxSide: number): Sprite {
+  const k = Math.min(1, maxSide / Math.max(img.width, img.height));
+  if (k >= 1) return img;
+  // 一気に縮めると荒れるので半分ずつ縮める
+  let src: Sprite = img;
+  let w = img.width;
+  let h = img.height;
+  const tw = Math.round(img.width * k);
+  const th = Math.round(img.height * k);
+  while (w > tw) {
+    w = Math.max(tw, Math.round(w / 2));
+    h = Math.max(th, Math.round(h / 2));
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    c.getContext('2d')!.drawImage(src, 0, 0, w, h);
+    src = c;
+  }
+  return src;
+}
+
 export async function loadAssets(): Promise<Assets> {
   const all = (urls: string[]) => Promise.all(urls.map(load));
   const [[rail, curve, curve90], cars, trees, houses] = await Promise.all([
@@ -52,7 +77,14 @@ export async function loadAssets(): Promise<Assets> {
     all(treeUrls.slice(0, TREE_COUNT)),
     all(houseUrls.slice(0, HOUSE_COUNT)),
   ]);
-  return { rail, curve, curve90, trees, houses, cars };
+  return {
+    rail,
+    curve,
+    curve90,
+    trees: trees.map((t) => shrink(t, DECO_PX)),
+    houses: houses.map((h) => shrink(h, DECO_PX)),
+    cars: cars.map(bakeCar),
+  };
 }
 
 // 直線スプライト(75x209)の構造: 上のツメ 0-30 / 本体 30-209(うち下39がくぼみ)
@@ -156,44 +188,8 @@ function drawSeg(ctx: CanvasRenderingContext2D, a: Assets, seg: Seg) {
   else drawBentArc(ctx, a, seg);
 }
 
-const CACHE_K = 2;
-
-/** 木目を曲げて描く任意角度のカーブは重いので、一度だけ画像にしておく */
 export function drawPiece(ctx: CanvasRenderingContext2D, a: Assets, piece: Piece) {
-  const seg = piece.seg;
-  const standard =
-    seg.s === 0 ||
-    (near(seg.r, R90) && near(seg.len, R90 * SWEEP90)) ||
-    (near(seg.r, ARC_R) && near(seg.len, ARC_R * ARC_SWEEP));
-  if (standard) return drawSeg(ctx, a, seg);
-  if (!piece.cache) {
-    let x0 = Infinity,
-      y0 = Infinity,
-      x1 = -Infinity,
-      y1 = -Infinity;
-    for (let u = 0; u <= seg.len + 4; u += 6) {
-      const p = poseAt(seg, Math.min(u, seg.len));
-      x0 = Math.min(x0, p.x);
-      y0 = Math.min(y0, p.y);
-      x1 = Math.max(x1, p.x);
-      y1 = Math.max(y1, p.y);
-    }
-    const m = RAIL_W / 2 + 24;
-    x0 -= m;
-    y0 -= m;
-    const w = x1 + m - x0;
-    const h = y1 + m - y0;
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.ceil(w * CACHE_K);
-    canvas.height = Math.ceil(h * CACHE_K);
-    const c = canvas.getContext('2d')!;
-    c.scale(CACHE_K, CACHE_K);
-    c.translate(-x0, -y0);
-    drawSeg(c, a, seg);
-    piece.cache = { canvas, x: x0, y: y0, w, h };
-  }
-  const k = piece.cache;
-  ctx.drawImage(k.canvas, k.x, k.y, k.w, k.h);
+  drawSeg(ctx, a, piece.seg);
 }
 
 export function drawDeco(ctx: CanvasRenderingContext2D, a: Assets, d: Deco) {
@@ -203,9 +199,6 @@ export function drawDeco(ctx: CanvasRenderingContext2D, a: Assets, d: Deco) {
   ctx.save();
   ctx.translate(d.x, d.y);
   ctx.rotate(d.rot);
-  ctx.shadowColor = 'rgba(0,0,0,0.25)';
-  ctx.shadowBlur = 5;
-  ctx.shadowOffsetY = 2;
   ctx.drawImage(img, -w / 2, -h / 2, w, h);
   ctx.restore();
 }
@@ -213,10 +206,37 @@ export function drawDeco(ctx: CanvasRenderingContext2D, a: Assets, d: Deco) {
 const CAR_SCALE = SCALE * 0.733;
 export const CAR_SPACING = 226 * CAR_SCALE + 4;
 
+const CAR_PAD = 8; // 影のぶんの余白
+const CAR_Q = 2; // 影つきの画像を作るときの解像度
+
+/** 車両は毎フレーム回転して描くので、影まで含めた画像を先に作っておく */
+export interface Car {
+  canvas: HTMLCanvasElement;
+  w: number; // 論理サイズ(余白込み)
+  h: number;
+}
+
+function bakeCar(img: HTMLImageElement): Car {
+  const iw = img.width * CAR_SCALE;
+  const ih = img.height * CAR_SCALE;
+  const w = iw + CAR_PAD * 2;
+  const h = ih + CAR_PAD * 2;
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.ceil(w * CAR_Q);
+  canvas.height = Math.ceil(h * CAR_Q);
+  const c = canvas.getContext('2d')!;
+  c.scale(CAR_Q, CAR_Q);
+  c.shadowColor = 'rgba(0,0,0,0.3)';
+  c.shadowBlur = 6;
+  c.shadowOffsetY = 2;
+  c.drawImage(img, CAR_PAD, CAR_PAD, iw, ih);
+  return { canvas, w, h };
+}
+
 /** 車両を描く。スプライトの下側が進行方向(機関車の煙突側) */
 export function drawCar(
   ctx: CanvasRenderingContext2D,
-  img: HTMLImageElement,
+  car: Car,
   x: number,
   y: number,
   h: number,
@@ -224,13 +244,8 @@ export function drawCar(
 ) {
   ctx.save();
   ctx.globalAlpha = alpha;
-  ctx.shadowColor = 'rgba(0,0,0,0.28)';
-  ctx.shadowBlur = 6;
-  ctx.shadowOffsetY = 3;
   ctx.translate(x, y);
   ctx.rotate(h - Math.PI / 2);
-  const w = img.width * CAR_SCALE;
-  const hh = img.height * CAR_SCALE;
-  ctx.drawImage(img, -w / 2, -hh / 2, w, hh);
+  ctx.drawImage(car.canvas, -car.w / 2, -car.h / 2, car.w, car.h);
   ctx.restore();
 }
