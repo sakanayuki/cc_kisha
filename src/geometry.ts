@@ -8,6 +8,7 @@ export interface Pose {
 export const SCALE = 0.38;
 export const RAIL_W = 75 * SCALE;
 export const LINE_LEN = 179 * SCALE; // 直線パーツ本体の長さ(ツメを除く)
+export const LONG_LEN = (504 * RAIL_W) / 77; // 長い直線パーツ(幅77pxの写真から切り出し)の本体の長さ
 export const ARC_R = 379 * SCALE; // カーブパーツの中心線の半径
 export const ARC_SWEEP = (30 * Math.PI) / 180;
 // 90度カーブは幅97pxの写真から切り出したもの。中心線の半径は224px

@@ -20,6 +20,7 @@ export interface Piece {
   seg: Seg;
   order: number; // 敷いた順。大きいほど上に重なる
   bb: { x0: number; y0: number; x1: number; y1: number }; // 画面外の描画を省くための外接矩形
+  manual?: boolean; // パーツモードで置いたレール(なぞりモードの接続対象にしない)
   deco: Deco[]; // このレールを敷いたときに周りへ建った木や家
   linkA: Link | null; // 始点側の接続先
   linkB: Link | null; // 終点側の接続先
@@ -120,6 +121,17 @@ export class Track {
       }
     }
     return true;
+  }
+
+  /** パーツを取り除く(接続も外す)。索引は作り直す */
+  remove(piece: Piece) {
+    for (const l of [piece.linkA, piece.linkB]) {
+      if (!l) continue;
+      if (l.piece.linkA?.piece === piece) l.piece.linkA = null;
+      if (l.piece.linkB?.piece === piece) l.piece.linkB = null;
+    }
+    this.pieces.splice(this.pieces.indexOf(piece), 1);
+    this.reindex();
   }
 
   connect(a: Piece, ea: End, b: Piece, eb: End) {

@@ -11,6 +11,15 @@
   <body>
     <canvas id="stage"></canvas>
     <div id="hint"></div>
+    <div id="palette" hidden>
+      <button class="part active" data-part="line" aria-label="直線"><img src="/src/assets/rail_short.png" alt="" /></button>
+      <button class="part" data-part="long" aria-label="長い直線"><img src="/src/assets/rail_long.png" alt="" /></button>
+      <button class="part" data-part="gentle" aria-label="緩やかなカーブ"><img src="/src/assets/rail_curve.png" alt="" /></button>
+      <button class="part" data-part="sharp" aria-label="急なカーブ"><img src="/src/assets/rail_curve90.png" alt="" /></button>
+      <button class="part undo" id="btn-undo" aria-label="1つ戻す">
+        <svg viewBox="0 0 48 48" aria-hidden="true"><path d="M16 12 L8 20 L16 28" /><path d="M8 20 H28 a10 10 0 0 1 0 20 H18" /></svg>
+      </button>
+    </div>
     <nav id="toolbar">
       <button id="btn-rail" class="tool active" aria-label="レールモード">
         <svg viewBox="0 0 48 48" aria-hidden="true">
@@ -19,6 +28,14 @@
           <path class="tie" d="M10 30 l9 4 M16 22 l8 5 M26 16 l6 5" />
         </svg>
         <span>レール</span>
+      </button>
+ <button id="btn-parts" class="tool" aria-label="パーツモード">
+        <svg viewBox="0 0 48 48" aria-hidden="true">
+          <rect x="4" y="19" width="18" height="10" rx="2" />
+          <rect x="26" y="19" width="18" height="10" rx="2" stroke-dasharray="3 3" />
+          <path class="plain" d="M22 24 h4" />
+        </svg>
+        <span>パーツ</span>
       </button>
       <button id="btn-go" class="tool" aria-label="発車モード">
         <svg viewBox="0 0 48 48" aria-hidden="true">

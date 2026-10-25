@@ -41,7 +41,7 @@ export class RailDrawer {
     this.cursor = null;
     this.from = null;
     this.origin = null;
-    const e = this.track.nearestOpenEnd({ x, y }, SNAP_START / this.zoom());
+    const e = this.track.nearestOpenEnd({ x, y }, SNAP_START / this.zoom(), (e) => !!e.piece.manual);
     if (e) {
       this.cursor = e.pose;
       this.from = { piece: e.piece, end: e.end };
@@ -128,6 +128,7 @@ export class RailDrawer {
     const recent = this.stroke.slice(-3).map((s) => s.piece);
     const first = this.stroke.length < 6 && this.stroke.length > 0 ? this.stroke[0].piece : null;
     const skip = (e: OpenEnd) =>
+      !!e.piece.manual ||
       (this.from !== null && e.piece === this.from.piece) ||
       (first !== null && e.piece === first) ||
       recent.includes(e.piece);

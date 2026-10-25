@@ -8,6 +8,7 @@ import {
   ARC_R,
   ARC_SWEEP,
   LINE_LEN,
+  LONG_LEN,
   R90,
   RAIL_W,
   SCALE,
@@ -26,11 +27,13 @@ const houseUrls = Object.values(
   import.meta.glob('./assets/house*.png', { eager: true, query: '?url', import: 'default' }),
 ) as string[];
 import curve90Url from './assets/rail_curve90.png';
+import longUrl from './assets/rail_long.png';
 
 export interface Assets {
   rail: HTMLImageElement;
   curve: HTMLImageElement;
   curve90: HTMLImageElement;
+  long: HTMLImageElement;
   trees: Sprite[];
   houses: Sprite[];
   cars: Car[]; // 先頭から 機関車/青/貨車/赤
@@ -71,8 +74,8 @@ function shrink(img: HTMLImageElement, maxSide: number): Sprite {
 
 export async function loadAssets(): Promise<Assets> {
   const all = (urls: string[]) => Promise.all(urls.map(load));
-  const [[rail, curve, curve90], cars, trees, houses] = await Promise.all([
-    all([railUrl, curveUrl, curve90Url]),
+  const [[rail, curve, curve90, long], cars, trees, houses] = await Promise.all([
+    all([railUrl, curveUrl, curve90Url, longUrl]),
     all([locoUrl, blueUrl, greenUrl, redUrl]),
     all(treeUrls.slice(0, TREE_COUNT)),
     all(houseUrls.slice(0, HOUSE_COUNT)),
@@ -81,6 +84,7 @@ export async function loadAssets(): Promise<Assets> {
     rail,
     curve,
     curve90,
+    long,
     trees: trees.map((t) => shrink(t, DECO_PX)),
     houses: houses.map((h) => shrink(h, DECO_PX)),
     cars: cars.map(bakeCar),
@@ -177,10 +181,22 @@ function drawArc90(ctx: CanvasRenderingContext2D, a: Assets, seg: Seg) {
   ctx.restore();
 }
 
-const near = (a: number, b: number) => Math.abs(a - b) < 0.5;
+export const near = (a: number, b: number) => Math.abs(a - b) < 0.5;
+
+// 長い直線スプライト(78x534)。ツメは上の30px
+function drawLong(ctx: CanvasRenderingContext2D, a: Assets, seg: Seg) {
+  ctx.save();
+  ctx.translate(seg.x, seg.y);
+  ctx.rotate(seg.h + Math.PI / 2);
+  const k = RAIL_W / 77;
+  ctx.scale(k, k);
+  ctx.drawImage(a.long, -a.long.width / 2, -a.long.height);
+  ctx.restore();
+}
 
 function drawSeg(ctx: CanvasRenderingContext2D, a: Assets, seg: Seg) {
-  if (seg.s === 0) {
+  if (seg.s === 0 && near(seg.len, LONG_LEN)) drawLong(ctx, a, seg);
+  else if (seg.s === 0) {
     drawLine(ctx, a, seg);
     drawTab(ctx, a, seg);
   } else if (near(seg.r, R90) && near(seg.len, R90 * SWEEP90)) drawArc90(ctx, a, seg);

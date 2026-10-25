@@ -3,11 +3,12 @@ import { RailDrawer } from './drawer';
 import { CAR_BODY_LEN, CAR_BODY_W, drawCar, drawDeco, drawPiece, loadAssets, Assets } from './render';
 import { poseAt } from './geometry';
 import { spawnDeco } from './scenery';
+import { PartKind, PartsLine, Turn, firstSeg } from './parts';
 import { Piece, Track } from './track';
 import { Train } from './train';
 
 const HOLD_MS = 900;
-type Mode = 'rail' | 'go';
+type Mode = 'rail' | 'parts' | 'go';
 
 const canvas = document.getElementById('stage') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d', { alpha: false })!;
@@ -24,10 +25,16 @@ let pending: Piece[] = [];
 const hint = document.getElementById('hint')!;
 const btnRail = document.getElementById('btn-rail')!;
 const btnGo = document.getElementById('btn-go')!;
+const btnParts = document.getElementById('btn-parts')!;
+const palette = document.getElementById('palette')!;
+const btnUndo = document.getElementById('btn-undo')!;
 const btnTrash = document.getElementById('btn-trash')!;
 const ring = btnTrash.querySelector('.ring') as SVGElement;
 
 const track = new Track();
+const line = new PartsLine(track); // パーツモードで置いた1本道
+let part: PartKind = 'line';
+const turns: Record<'gentle' | 'sharp', Turn> = { gentle: 1, sharp: 1 }; // カーブの左右(1: 右)
 let assets: Assets;
 let mode: Mode = 'rail';
 let train: Train | null = null;
@@ -67,6 +74,7 @@ function growView(piece: Piece) {
 
 const HINTS: Record<Mode, string> = {
   rail: '画面をなぞってレールを敷こう',
+  parts: 'パーツを選んで、置きたい場所をタップしよう',
   go: 'レールをタップすると列車が走り出すよ',
 };
 
@@ -74,7 +82,9 @@ function setMode(m: Mode) {
   mode = m;
   btnRail.classList.toggle('active', m === 'rail');
   btnGo.classList.toggle('active', m === 'go');
-  if (m === 'rail') train = null;
+  btnParts.classList.toggle('active', m === 'parts');
+  palette.hidden = m !== 'parts';
+  if (m !== 'go') train = null;
   dirty = true;
   hint.textContent = HINTS[m];
   hint.style.opacity = '1';
@@ -121,11 +131,63 @@ function addToLayer(piece: Piece) {
 
 let rail: RailDrawer;
 
+const turnOf = (): Turn => (part === 'gentle' || part === 'sharp' ? turns[part] : 1);
+
+/** 新しく置いたレールの後始末(飾り・ズーム・描画)。なぞり・パーツ両方で使う */
+function onPlaced(piece: Piece) {
+  spawnDeco(track, piece);
+  growView(piece);
+  addToLayer(piece);
+}
+
+/** パーツモードのタップ: 最初の1個は好きな場所に、2個目以降は端の近くに置く */
+function tapPart(sx: number, sy: number) {
+  const w = toWorld(sx, sy);
+  if (line.empty) {
+    onPlaced(line.placeFirst(firstSeg(part, w.x, w.y, turnOf())));
+    return;
+  }
+  const cands = line.candidates(part, turnOf());
+  const hit = line.pick(cands, w.x, w.y, 48 / zoom);
+  if (!hit) return;
+  onPlaced(line.placeAt(hit));
+  if (hit.closes) showHint('ぐるっと1周つながった!');
+}
+
+function undoPart() {
+  if (!line.undo()) return;
+  renderLayer();
+  dirty = true;
+}
+
+function showHint(text: string) {
+  hint.textContent = text;
+  hint.style.opacity = '1';
+  window.setTimeout(() => (hint.style.opacity = '0'), 2500);
+}
+
+for (const b of palette.querySelectorAll<HTMLButtonElement>('button[data-part]')) {
+  b.addEventListener('click', () => {
+    const kind = b.dataset.part as PartKind;
+    // 選択中のカーブをもう一度タップすると左右反転
+    if (kind === part && (kind === 'gentle' || kind === 'sharp')) {
+      turns[kind] = (turns[kind] * -1) as Turn;
+      b.classList.toggle('flipped', turns[kind] === -1);
+    }
+    part = kind;
+    palette.querySelectorAll('.part[data-part]').forEach((x) => x.classList.toggle('active', x === b));
+    dirty = true;
+  });
+}
+btnUndo.addEventListener('click', undoPart);
+
 canvas.addEventListener('pointerdown', (e) => {
   canvas.setPointerCapture(e.pointerId);
   if (mode === 'rail') {
     const w = toWorld(e.clientX, e.clientY);
     rail.down(w.x, w.y);
+  } else if (mode === 'parts') {
+    tapPart(e.clientX, e.clientY);
   } else {
     const hit = track.nearestOnTrack(toWorld(e.clientX, e.clientY), 40 / zoom);
     if (hit) train = new Train(track, hit.piece, hit.u, assets.cars.length);
@@ -146,6 +208,7 @@ canvas.addEventListener('pointercancel', end);
 
 btnRail.addEventListener('click', () => setMode('rail'));
 btnGo.addEventListener('click', () => setMode('go'));
+btnParts.addEventListener('click', () => setMode('parts'));
 
 // ゴミ箱は長押しで全消去
 let holdTimer = 0;
@@ -170,6 +233,7 @@ function cancelHold() {
 }
 function clearAll() {
   track.clear();
+  line.clear();
   train = null;
   reach = { x: 0, y: 0 };
   overviewZoom = 1; // 拡大率も最初に戻す
@@ -207,6 +271,15 @@ function drawVisible(c: CanvasRenderingContext2D) {
     }
   }
   for (const p of seen) drawPiece(c, assets, p);
+}
+
+/** パーツモードで、両端に置いたときの形を半透明で見せる */
+function drawGhosts(c: CanvasRenderingContext2D) {
+  if (mode !== 'parts' || line.empty) return;
+  c.save();
+  c.globalAlpha = 0.45;
+  for (const cand of line.candidates(part, turnOf())) drawPiece(c, assets, { seg: cand.seg } as Piece);
+  c.restore();
 }
 
 let last = performance.now();
@@ -268,6 +341,7 @@ function frame(now: number) {
     applyView(ctx, zoom, off.x, off.y);
     drawVisible(ctx);
   }
+  drawGhosts(ctx);
   if (train) {
     for (const c of cars) drawCar(ctx, assets.cars[c.idx], c.x, c.y, c.h, c.alpha);
     // 交差で下のレールを走る車両は、上に敷かれたレールの下に隠れるようにする
@@ -288,11 +362,7 @@ loadAssets().then((a) => {
   assets = a;
   rail = new RailDrawer(
     track,
-    (piece) => {
-      spawnDeco(track, piece);
-      growView(piece);
-      addToLayer(piece);
-    },
+    onPlaced,
     () => {
       track.reindex();
       renderLayer();

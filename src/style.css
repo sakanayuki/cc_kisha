@@ -44,14 +44,14 @@ body {
   bottom: calc(env(safe-area-inset-bottom) + 14px);
   display: flex;
   justify-content: center;
-  gap: 18px;
+  gap: 12px;
   pointer-events: none;
 }
 .tool {
   pointer-events: auto;
   position: relative;
-  width: 76px;
-  height: 76px;
+  width: 68px;
+  height: 68px;
   border-radius: 50%;
   border: 3px solid var(--wood-dark);
   background: radial-gradient(circle at 35% 30%, var(--wood-light), var(--wood));
@@ -83,9 +83,10 @@ body {
   stroke-width: 2.5;
 }
 .tool span {
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
   margin-top: -2px;
+  white-space: nowrap;
 }
 .tool.active {
   transform: translateY(-6px);
@@ -105,4 +106,69 @@ body {
   stroke-dasharray: 182;
   stroke-dashoffset: 182;
   pointer-events: none;
+}
+
+#palette {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(env(safe-area-inset-bottom) + 98px);
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  pointer-events: none;
+}
+#palette[hidden] {
+  display: none;
+}
+.part {
+  pointer-events: auto;
+  width: 56px;
+  height: 56px;
+  padding: 6px;
+  border-radius: 14px;
+  border: 2px solid var(--wood-dark);
+  background: linear-gradient(var(--wood-light), var(--wood));
+  box-shadow: 0 3px 6px rgba(80, 50, 10, 0.28);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  touch-action: none;
+}
+.part img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  transition: transform 0.15s;
+}
+.part[data-part='line'] img {
+  transform: rotate(90deg) scale(0.62);
+}
+.part[data-part='long'] img {
+  transform: rotate(90deg) scale(1.05);
+}
+.part.flipped img {
+  transform: scaleX(-1);
+}
+.part.active {
+  background: radial-gradient(circle at 35% 30%, #fff1cf, #f0b95c);
+  transform: translateY(-4px);
+  box-shadow: 0 6px 10px rgba(80, 50, 10, 0.35);
+}
+.part.undo {
+  color: #5a3b14;
+}
+.part.undo svg {
+  width: 30px;
+  height: 30px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.part.undo:active {
+  transform: scale(0.92);
 }
